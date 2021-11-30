@@ -15,15 +15,16 @@
 """
 Predictor class to handle detection of poses for movenet
 """
-
-# import os
 import logging
+import os
+import time
 from pathlib import Path
 from typing import Dict, List, Any, Tuple
 import cv2 as cv
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.saved_model import tag_constants
+from tensorflow.python.compiler.tensorrt import trt_convert
 
 SKELETON = [
     [16, 14],
@@ -46,6 +47,7 @@ SKELETON = [
     [4, 6],
     [5, 7],
 ]
+PEEKINGDUCK_WEIGHTS_SUBDIR = "peekingduck_weights"
 
 
 class Predictor:  # pylint: disable=logging-fstring-interpolation
@@ -58,10 +60,77 @@ class Predictor:  # pylint: disable=logging-fstring-interpolation
         self.config = config
         self.model_dir = model_dir
         self.model_type = self.config["model_type"]
+        self.TF_TRT = self.config["TF_TRT"]
 
-        self.movenet_model = self._create_posenet_model()
+        if not self.TF_TRT:
+            self.movenet_model = self._create_movenet_model()
+        else:
+            tf_trt_model_name = config["weights"]["TF_TRT_model_path"][self.model_type]
+            tf_trt_model_dir = model_dir / tf_trt_model_name
+            if not tf_trt_model_dir.exists():
+                self.logger.info(
+                    "---no TF_TRT weights detected. proceeding to build...---"
+                )
+                self._build_engine()
+            self.movenet_model = self._create_TFTRT_movenet_model()
 
-    def _create_posenet_model(self) -> tf.keras.Model:
+    def _my_input_fn(self):
+        # input_fn: a generator function that yields input data as a list or tuple,
+        # which will be used to execute the converted signature to generate TensorRT
+        # engines.
+        size = self.config["resolution"]["model_type"]["height"]
+        input_shape = (1, size, size, 3)
+        batched_input = np.zeros(input_shape, dtype=np.float32)
+        batched_input = tf.constant(batched_input)
+        yield (batched_input,)
+
+    def _create_TFTRT_movenet_model(self) -> tf.keras.Model:
+        """
+        Creates TFTRT movenet model
+        """
+        # Load converted model and infer
+        converted_model_path = (
+            self.model_dir
+            / self.config["weights"]["TF_TRT_model_file"][self.model_type]
+        )
+        model = tf.saved_model.load(converted_model_path, tags=[tag_constants.SERVING])
+
+        return model
+
+    def _build_engine(self):
+
+        TF_model_path = (
+            self.model_dir / self.config["weights"]["model_file"][self.model_type]
+        )
+        # Conversion Parameters
+        conversion_params = trt_convert.TrtConversionParams(
+            precision_mode=trt_convert.TrtPrecisionMode.FP16,
+            max_workspace_size_bytes=4000000000,
+            max_batch_size=1,
+        )
+
+        converter = trt_convert.TrtGraphConverterV2(
+            input_saved_model_dir=str(TF_model_path),
+            conversion_params=conversion_params,
+        )
+
+        print("Building the TensorRT engine.  This would take a while...")
+        t = time.process_time()
+        # Converter method used to partition and optimize TensorRT compatible segments
+        converter.convert()
+
+        # Optionally, build TensorRT engines before deployment to save time at runtime
+        # Note that this is GPU specific, and as a rule of thumb, we recommend building at runtime
+        converter.build(input_fn=self._my_input_fn)
+
+        # Save the converted model
+        converted_model_path = (
+            self.model_dir
+            / self.config["weights"]["TF_TRT_model_file"][self.model_type]
+        )
+        converter.save(str(converted_model_path))
+
+    def _create_movenet_model(self) -> tf.keras.Model:
         model_path = (
             self.model_dir / self.config["weights"]["model_file"][self.model_type]
         )

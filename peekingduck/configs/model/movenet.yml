@@ -3,6 +3,7 @@ output: ["bboxes", "keypoints", "keypoint_scores", "keypoint_conns", "bbox_label
 
 model_type: multipose_lightning
 weights_parent_dir: null
+TF_TRT: False
 weights: {
     model_subdir: movenet,
     blob_file: movenet.zip,
@@ -10,7 +11,12 @@ weights: {
       multipose_lightning: multipose_lightning,
       singlepose_lightning: singlepose_lightning,
       singlepose_thunder: singlepose_thunder,
-  }
+    },
+    TF_TRT_model_file: {
+      multipose_lightning: multipose_lightning_TFTRT,
+      singlepose_lightning: singlepose_lightning_TFTRT,
+      singlepose_thunder: singlepose_thunder_TFTRT,
+    }
 }
 resolution: {
     singlepose_lightning: { height: 192, width: 192 },
