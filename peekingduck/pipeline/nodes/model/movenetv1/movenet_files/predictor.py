@@ -16,7 +16,6 @@
 Predictor class to handle detection of poses for movenet
 """
 import logging
-import os
 import time
 from pathlib import Path
 from typing import Dict, List, Any, Tuple
@@ -60,9 +59,9 @@ class Predictor:  # pylint: disable=logging-fstring-interpolation
         self.config = config
         self.model_dir = model_dir
         self.model_type = self.config["model_type"]
-        self.TF_TRT = self.config["TF_TRT"]
+        self.tf_trt = self.config["TF_TRT"]
 
-        if not self.TF_TRT:
+        if not self.tf_trt:
             self.movenet_model = self._create_movenet_model()
         else:
             tf_trt_model_name = config["weights"]["TF_TRT_model_path"][self.model_type]
@@ -72,7 +71,7 @@ class Predictor:  # pylint: disable=logging-fstring-interpolation
                     "---no TF_TRT weights detected. proceeding to build...---"
                 )
                 self._build_engine()
-            self.movenet_model = self._create_TFTRT_movenet_model()
+            self.movenet_model = self._create_tftrt_movenet_model()
 
     def _my_input_fn(self):
         # input_fn: a generator function that yields input data as a list or tuple,
@@ -84,7 +83,7 @@ class Predictor:  # pylint: disable=logging-fstring-interpolation
         batched_input = tf.constant(batched_input)
         yield (batched_input,)
 
-    def _create_TFTRT_movenet_model(self) -> tf.keras.Model:
+    def _create_tftrt_movenet_model(self) -> tf.keras.Model:
         """
         Creates TFTRT movenet model
         """
@@ -99,7 +98,7 @@ class Predictor:  # pylint: disable=logging-fstring-interpolation
 
     def _build_engine(self):
 
-        TF_model_path = (
+        tf_model_path = (
             self.model_dir / self.config["weights"]["model_file"][self.model_type]
         )
         # Conversion Parameters
@@ -110,12 +109,12 @@ class Predictor:  # pylint: disable=logging-fstring-interpolation
         )
 
         converter = trt_convert.TrtGraphConverterV2(
-            input_saved_model_dir=str(TF_model_path),
+            input_saved_model_dir=str(tf_model_path),
             conversion_params=conversion_params,
         )
 
         print("Building the TensorRT engine.  This would take a while...")
-        t = time.process_time()
+        strt_time = time.process_time()
         # Converter method used to partition and optimize TensorRT compatible segments
         converter.convert()
 
@@ -129,6 +128,8 @@ class Predictor:  # pylint: disable=logging-fstring-interpolation
             / self.config["weights"]["TF_TRT_model_file"][self.model_type]
         )
         converter.save(str(converted_model_path))
+        elapsed_time = time.process_time() - strt_time
+        print(f"TensorRT engine built in {elapsed_time} secs")
 
     def _create_movenet_model(self) -> tf.keras.Model:
         model_path = (
